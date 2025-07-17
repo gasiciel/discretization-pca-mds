@@ -1,0 +1,1029 @@
+---
+title: "Dyskretyzacja cech ciągłych, analiza składowych głównych (PCA) i skalowanie wielowymiarowe (MDS)"
+author: "Stanisław Olek"
+output:
+  pdf_document:
+    toc: true
+    fig_caption: true
+    fig_width: 6
+    fig_height: 5
+    number_sections: true
+  html_document:
+    toc: true
+    df_print: paged
+header-includes:
+- \usepackage[OT4]{polski}
+- \usepackage[utf8]{inputenc}
+- \usepackage{graphicx}
+- \usepackage{float}
+fontsize: 12pt
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+	echo = FALSE,
+	fig.align = "center",
+	fig.pos = "H",
+	message = FALSE,
+	warning = FALSE,
+	out.extra = "",
+	options(xtable.comment = FALSE)
+)
+knitr::opts_chunk$set(warning = FALSE, message = FALSE, echo = FALSE) 
+knitr::opts_chunk$set(fig.pos = "H", out.extra = "", fig.align = "center")
+```
+
+```{r biblioteki}
+library(arules)
+library(ggplot2)
+library(gridExtra)
+library(ggmosaic)
+library(showtext)
+library(xtable)
+library(e1071)
+showtext_auto()
+```
+
+\newpage
+
+# Dyskretyzacja (przedziałowanie) cech ciągłych
+
+W tej sekcji zajmiemy się dyskretyzacją cech ciągłych danych ze zbioru `iris`. Zawiera on 3 gatunki irysów: **setosa**, **versicolor**, **virginica**.
+
+W tym celu wybierzemy jedną cechę o najlepszych zdolnościach dyskryminacyjnych, to znaczy taką, która zapewni nam najlepszą separację gatunków oraz jedną cechę o najgorszych takich zdolnościach.
+
+```{r dane}
+# wczytanie danych
+data(iris)
+liczba.obserwacji <- dim(iris)[1]
+
+# wybranie poszczególnych cech
+sepal.length <- iris$Sepal.Length
+sepal.width <- iris$Sepal.Width
+
+petal.length <- iris$Petal.Length
+petal.width <- iris$Petal.Width
+```
+
+```{r histogramy, fig.cap="\\label{fig:histogramy_iris} Histogramy poszczególnych cech", fig.height=7, fig.width=6}
+# tworzenie histogramów dla poszczególnych cech
+hist1 <- ggplot(as.data.frame(sepal.length), aes(x = sepal.length)) + geom_histogram(bins=10, color="black", fill="blue") + theme_minimal() + labs(title="Cecha sepal.length", y = "Liczba irysów") 
+
+hist2 <- ggplot(as.data.frame(sepal.width), aes(x = sepal.width)) + geom_histogram(bins=10, color="black", fill="purple") + theme_minimal() + labs(title="Cecha sepal.width", y = "Liczba irysów") 
+
+hist3 <- ggplot(as.data.frame(petal.length), aes(x = petal.length)) + geom_histogram(bins=10, color="black", fill="orange") + theme_minimal() + labs(title="Cecha petal.length", y = "Liczba irysów") 
+
+hist4 <- ggplot(as.data.frame(petal.width), aes(x = petal.width)) + geom_histogram(bins=10, color="black", fill="red") + theme_minimal() + labs(title="Cecha petal.width", y = "Liczba irysów") 
+
+grid.arrange(hist1, hist2, hist3, hist4, ncol=2)
+
+```
+
+```{r wykresy rozrzutu, fig.cap="\\label{fig:wykresy_rozrzutu_iris} Wykresy rozrzutu dla poszczególnych cech", fig.height=8, fig.width=7}
+# losowa współrzędna y z rozkładu równomiernego U[0,1]
+y <- runif(liczba.obserwacji)
+
+# tworzenie wykresów rozrzutu dla poszczególnych cech 
+sp1 <- ggplot(as.data.frame(sepal.length), aes(x = sepal.length, y = y)) + geom_point(color="blue") + labs(title="Cecha sepal.length")
+sp2 <- ggplot(as.data.frame(sepal.width), aes(x = sepal.width, y = y)) + geom_point(color="purple") + labs(title="Cecha sepal.width")
+
+sp3 <- ggplot(as.data.frame(petal.length), aes(x = petal.length, y = y)) + geom_point(color="orange") + labs(title="Cecha petal.length")
+sp4 <- ggplot(as.data.frame(petal.width), aes(x = petal.width, y = y)) + geom_point(color="red") + labs(title="Cecha petal.width")
+
+grid.arrange(sp1, sp2, sp3, sp4, ncol=2)
+
+```
+
+```{r wykresy pudełkowe, fig.cap="\\label{fig:wykresy_pudelkowe_iris} Wykresy pudełkowe dla poszczególnych cech", fig.height=7, fig.width=6}
+# tworzenie wykresów pudełkowych dla poszczególnych cech 
+bp1 <- ggplot(iris, aes(x = iris$Species , y = sepal.length)) + geom_boxplot(col="black", fill="blue") + labs(title="Cecha sepal.length", x="Klasy (Species)")
+
+bp2 <- ggplot(iris, aes(x = iris$Species , y = sepal.width)) + geom_boxplot(col="black", fill="purple") + labs(title="Cecha sepal.width", x="Klasy (Species)")
+
+bp3 <- ggplot(iris, aes(x = iris$Species , y = petal.length)) + geom_boxplot(col="black", fill="orange") + labs(title="Cecha petal.length", x="Klasy (Species)")
+
+bp4 <- ggplot(iris, aes(x = iris$Species , y = petal.length)) + geom_boxplot(col="black", fill="red") + labs(title="Cecha petal.length", x="Klasy (Species)")
+
+grid.arrange(bp1, bp2, bp3, bp4, ncol=2)
+
+```
+
+Na podstawie wykresów (Rysunki \ref{fig:histogramy_iris}, \ref{fig:wykresy_rozrzutu_iris}, \ref{fig:wykresy_pudelkowe_iris}) możemy zauważyć, że cecha **petal.length** ma najlepsze zdolności dyskryminacyjne, ponieważ najlepiej oddziela klasy irysów. Natomiast cecha **sepal.width** ma najgorsze zdolności dyskryminacyjne, ponieważ nie oddziela klas irysów.
+
+
+
+## Metoda oparta na równych częstościach
+
+### Cecha petal.length
+```{r equal frequency petal.length}
+# przedziałowanie zgodnie z metodą opartą na równych częstościach
+eq.freq <- discretize(petal.length, breaks=3, method="frequency")
+
+# tworzenie tabeli liczności
+table(eq.freq)
+```
+
+```{r equal frequency histogram, fig.cap="\\label{fig:histogram_eq_freq} Dyskretyzacja - metoda: equal frequency discretization - porównanie z rzeczywistymi klasami", fig.width=4, fig.height=3}
+# tworzenie histogramu dla dyskretyzacji
+breaks.eq.freq <- attributes(eq.freq)$"discretized:breaks"
+
+ggplot(as.data.frame(petal.length), aes(x = petal.length)) + geom_histogram(bins=10, color="black", fill="lightblue") + geom_vline(xintercept=breaks.eq.freq, col="red", lwd=1) + theme_minimal() + labs(title="Metoda: equal frequency discretization", y="liczba irysów")
+```
+
+```{r equal frequency wykres rozrzutu, fig.cap="\\label{fig:wykres_rozrzutu_eq_freq} Dyskretyzacja - metoda: equal frequency discretization - wykres rozrzutu", fig.width=4, fig.height=3}
+ggplot(as.data.frame(petal.length), aes(x = petal.length, y = y, color=iris$Species)) + geom_point() + labs(title="Metoda: equal frequency discretization", colour="Species") + geom_vline(xintercept=breaks.eq.freq, col="red", lwd=1)
+```
+
+```{r equal frequency wykres mozaikowy, fig.cap="\\label{fig:wykres_mozaikowy_eq_freq} Dyskretyzacja - metoda: equal frequency discretization - wykres mozaikowy", fig.width=4, fig.height=3}
+plot(iris$Species~eq.freq, col=1:3)
+```
+
+```{r equal frequency tabela kontyngencji}
+tab.eq.freq <- table(eq.freq, iris$Species)
+knitr::kable(tab.eq.freq, caption = "\\label{tab:tab_kontyn_eq_freq} Porównanie przedziałów dyskretyzacji z rzeczywistymi klasami")
+```
+
+
+```{r match classes eqal frequency}
+matchClasses(tab.eq.freq)
+```
+
+Wyniki dyskretyzacji metodą równych częstości dla cechy **petal.length** przedstawiono na Rysunku \ref{fig:histogram_eq_freq}, gdzie zaznaczono wyznaczone przedziały. Rozkład obserwacji w przestrzeni cechy z uwzględnieniem gatunków uwidoczniono na Rysunku \ref{fig:wykres_rozrzutu_eq_freq}. Relację między przedziałami dyskretyzacji a rzeczywistymi klasami gatunków przedstawia wykres mozaikowy (Rysunek \ref{fig:wykres_mozaikowy_eq_freq}) oraz tabela kontyngencji (Tabela \ref{tab:tab_kontyn_eq_freq}). Ponadto wynik funkcji `matchClasses()` wskazuje na 95.33 % zgodność pomiędzy przedziałami dyskretyzacji a rzeczywistymi klasami gatunków. 
+
+
+
+
+
+
+
+\newpage 
+### Cecha sepal.width
+```{r equal frequency sepal.width}
+# przedziałowanie zgodnie z metodą opartą na równych częstościach
+eq.freq.worst <- discretize(sepal.width, breaks=3, method="frequency")
+
+# tworzenie tabeli liczności
+table(eq.freq.worst)
+```
+
+```{r equal frequency histogram sepal.width, fig.cap="\\label{fig:histogram_eq_freq_sepal_width} Dyskretyzacja - metoda: equal frequency discretization - porównanie z rzeczywistymi klasami", fig.width=4, fig.height=3}
+# tworzenie histogramu dla dyskretyzacji
+breaks.eq.freq.worst <- attributes(eq.freq.worst)$"discretized:breaks"
+
+ggplot(as.data.frame(sepal.width), aes(x = sepal.width)) + geom_histogram(bins=10, color="black", fill="lightblue") + geom_vline(xintercept=breaks.eq.freq.worst, col="red", lwd=1) + theme_minimal() + labs(title="Metoda: equal frequency discretization", y="liczba irysów")
+```
+
+```{r equal frequency wykres rozrzutu sepal.width, fig.cap="\\label{fig:wykres_rozrzutu_eq_freq_sepal_width} Dyskretyzacja - metoda: equal frequency discretization - wykres rozrzutu", fig.width=4, fig.height=3}
+ggplot(as.data.frame(sepal.width), aes(x = sepal.width, y = y, color=iris$Species)) + geom_point() + labs(title="Metoda: equal frequency discretization", colour="Species") + geom_vline(xintercept=breaks.eq.freq.worst, col="red", lwd=1)
+```
+
+```{r equal frequency wykres mozaikowy sepal.width, fig.cap="\\label{fig:wykres_mozaikowy_eq_freq_sepal_width} Dyskretyzacja - metoda: equal frequency discretization - wykres mozaikowy", fig.width=4, fig.height=3}
+plot(iris$Species~eq.freq.worst, col=1:3)
+```
+
+```{r equal frequency tabela kontyngencji sepal.width}
+tab.eq.freq.worst <- table(eq.freq.worst, iris$Species)
+knitr::kable(tab.eq.freq.worst, caption = "\\label{tab:tab_kontyn_eq_freq_worst} Porównanie przedziałów dyskretyzacji z rzeczywistymi klasami")
+```
+
+```{r match classes eqal frequency sepal.width}
+matchClasses(tab.eq.freq.worst)
+```
+
+Wyniki dyskretyzacji metodą równych częstości dla cechy **sepal.width** przedstawiono na Rysunku \ref{fig:histogram_eq_freq_sepal_width}, gdzie zaznaczono wyznaczone przedziały. Rozkład obserwacji w przestrzeni cechy z uwzględnieniem gatunków uwidoczniono na Rysunku \ref{fig:wykres_rozrzutu_eq_freq_sepal_width}. Relację między przedziałami dyskretyzacji a rzeczywistymi klasami gatunków przedstawia wykres mozaikowy (Rysunek \ref{fig:wykres_mozaikowy_eq_freq_sepal_width}) oraz tabela kontyngencji (Tabela \ref{tab:tab_kontyn_eq_freq_worst}). Ponadto wynik funkcji `matchClasses()` wskazuje na 55.33 % zgodność pomiędzy przedziałami dyskretyzacji a rzeczywistymi klasami gatunków. 
+
+
+
+
+\newpage 
+## Metoda oparta na przedziałach o jednakowej szerokości
+
+### Cecha petal.length
+```{r equal interval width petal.length}
+# przedziałowanie zgodnie z metodą opartą na przedziałach o jednakowej szerokości
+eq.width <- discretize(petal.length, breaks=3, method="interval")
+
+# tworzenie tabeli liczności
+table(eq.width)
+```
+
+```{r equal interval width histogram, fig.cap="\\label{fig:histogram_eq_width} Dyskretyzacja - metoda: equal interval width - porównanie z rzeczywistymi klasami", fig.width=4, fig.height=3}
+# tworzenie histogramu dla dyskretyzacji
+breaks.eq.width <- attributes(eq.width)$"discretized:breaks"
+
+ggplot(as.data.frame(petal.length), aes(x = petal.length)) + geom_histogram(bins=10, color="black", fill="lightblue") + geom_vline(xintercept=breaks.eq.width, col="red", lwd=1) + theme_minimal() + labs(title="Metoda: equal interval width discretization", y="liczba irysów")
+```
+
+```{r equal interval width wykres rozrzutu, fig.cap="\\label{fig:wykres_rozrzutu_eq_width} Dyskretyzacja - metoda: equal interval length - wykres rozrzutu", fig.width=4, fig.height=3}
+ggplot(as.data.frame(petal.length), aes(x = petal.length, y = y, color=iris$Species)) + geom_point() + labs(title="Metoda: equal interval width discretization", colour="Species") + geom_vline(xintercept=breaks.eq.width, col="red", lwd=1)
+```
+
+```{r equal interval width wykres mozaikowy, fig.cap="\\label{fig:wykres_mozaikowy_eq_width} Dyskretyzacja - metoda: equal interval width discretization - wykres mozaikowy", fig.width=4, fig.height=3}
+plot(iris$Species~eq.width, col=1:3)
+```
+
+```{r equal interval width tabela kontyngencji}
+tab.eq.width <- table(eq.width, iris$Species)
+knitr::kable(tab.eq.width, caption = "\\label{tab:tab_kontyn_eq_width} Porównanie przedziałów dyskretyzacji z rzeczywistymi klasami")
+```
+
+```{r equal interval width match classes}
+matchClasses(tab.eq.width)
+```
+
+Wyniki dyskretyzacji metodą opartą na przedziałach o jednakowej szerokości dla cechy **petal.length** przedstawiono na Rysunku \ref{fig:histogram_eq_freq_sepal_width}, gdzie zaznaczono wyznaczone przedziały. Rozkład obserwacji w przestrzeni cechy z uwzględnieniem gatunków uwidoczniono na Rysunku \ref{fig:wykres_rozrzutu_eq_width}. Relację między przedziałami dyskretyzacji a rzeczywistymi klasami gatunków przedstawia wykres mozaikowy (Rysunek \ref{fig:wykres_mozaikowy_eq_width}) oraz tabela kontyngencji (Tabela \ref{tab:tab_kontyn_eq_width}). Ponadto wynik funkcji `matchClasses()` wskazuje na 94.67 % zgodność pomiędzy przedziałami dyskretyzacji a rzeczywistymi klasami gatunków. 
+
+
+
+
+\newpage
+### Cecha sepal.width
+```{r equal interval width sepal.width}
+# przedziałowanie zgodnie z metodą opartą na przedziałach o jednakowej szerokości
+eq.width.worst <- discretize(sepal.width, breaks=3, method="interval")
+
+# tworzenie tabeli liczności
+table(eq.width.worst)
+```
+
+```{r equal interval width histogram sepal.width, fig.cap="\\label{fig:histogram_eq_width_sepal_width} Dyskretyzacja - metoda: equal interval width - porównanie z rzeczywistymi klasami", fig.width=4, fig.height=3}
+# tworzenie histogramu dla dyskretyzacji
+breaks.eq.width.worst <- attributes(eq.width.worst)$"discretized:breaks"
+ggplot(as.data.frame(sepal.width), aes(x = sepal.width)) + geom_histogram(bins=10, color="black", fill="lightblue") + geom_vline(xintercept=breaks.eq.width.worst, col="red", lwd=1) + theme_minimal() + labs(title="Metoda: equal interval width discretization", y="liczba irysów")
+```
+
+```{r equal interval width wykres rozrzutu sepal.width, fig.cap="\\label{fig:wykres_rozrzutu_eq_width_sepal_width} Dyskretyzacja - metoda: equal interval width - wykres rozrzutu", fig.width=4, fig.height=3}
+ggplot(as.data.frame(sepal.width), aes(x = sepal.width, y = y, color=iris$Species)) + geom_point() + labs(title="Metoda: equal interval width discretization", colour="Species") + geom_vline(xintercept=breaks.eq.width.worst, col="red", lwd=1)
+```
+
+```{r equal interval width wykres mozaikowy sepal.width, fig.cap="\\label{fig:wykres_mozaikowy_eq_width_sepal_width} Dyskretyzacja - metoda: equal interval width discretization - wykres mozaikowy", fig.width=4, fig.height=3}
+plot(iris$Species~eq.width.worst, col=1:3)
+```
+
+```{r equal interval width tabela kontyngencji sepal.width}
+tab.eq.width.worst <- table(eq.width.worst, iris$Species)
+knitr::kable(tab.eq.width.worst, caption = "\\label{tab:tab_kontyn_eq_width_worst} Porównanie przedziałów dyskretyzacji z rzeczywistymi klasami")
+```
+
+```{r equal interval width match classes sepal.width}
+matchClasses(tab.eq.width.worst)
+```
+
+Wyniki dyskretyzacji metodą opartą na przedziałach o jednakowej szerokości dla cechy **sepal.width** przedstawiono na Rysunku \ref{fig:histogram_eq_width_sepal_width}, gdzie zaznaczono wyznaczone przedziały. Rozkład obserwacji w przestrzeni cechy z uwzględnieniem gatunków uwidoczniono na Rysunku \ref{fig:wykres_rozrzutu_eq_width_sepal_width}. Relację między przedziałami dyskretyzacji a rzeczywistymi klasami gatunków przedstawia wykres mozaikowy (Rysunek \ref{fig:wykres_mozaikowy_eq_width_sepal_width}) oraz tabela kontyngencji (Tabela \ref{tab:tab_kontyn_eq_width_worst}). Ponadto wynik funkcji `matchClasses()` wskazuje na 50.67 % % zgodność pomiędzy przedziałami dyskretyzacji a rzeczywistymi klasami gatunków. 
+
+
+
+
+
+
+
+
+\newpage
+
+## Metoda oparta na algorytmie grupowania (algorytm k-średnich)
+
+### Cecha petal.length
+```{r k-means petal.length}
+# przedziałowanie zgodnie z metodą opartą na algorytmie grupowania
+k.means <- discretize(petal.length, breaks=3, method="cluster")
+
+# tworzenie tabeli liczności
+table(k.means)
+```
+
+```{r k-means histogram, fig.cap="\\label{fig:histogram_k_means} Dyskretyzacja - metoda: k-means - porównanie z rzeczywistymi klasami", fig.width=4, fig.height=3}
+# tworzenie histogramu dla dyskretyzacji
+breaks.k.means <- attributes(k.means)$"discretized:breaks"
+
+ggplot(as.data.frame(petal.length), aes(x = petal.length)) + geom_histogram(bins=10, color="black", fill="lightblue") + geom_vline(xintercept=breaks.k.means, col="red", lwd=1) + theme_minimal() + labs(title="Metoda: k-means discretization", y="liczba irysów")
+```
+
+```{r k-means wykres rozrzutu, fig.cap="\\label{fig:wykres_rozrzutu_k_means} Dyskretyzacja - metoda: k-means - wykres rozrzutu", fig.width=4, fig.height=3}
+ggplot(as.data.frame(petal.length), aes(x = petal.length, y = y, color=iris$Species)) + geom_point() + labs(title="Metoda: k-means discretization", colour="Species") + geom_vline(xintercept=breaks.k.means, col="red", lwd=1)
+```
+
+```{r k-means wykres mozaikowy, fig.cap="\\label{fig:wykres_mozaikowy_k_means} Dyskretyzacja - metoda: k-means discretization - wykres mozaikowy", fig.width=4, fig.height=3}
+plot(iris$Species~k.means, col=1:3)
+```
+
+```{r k-means tabela kontyngencji}
+tab.k.means <- table(k.means, iris$Species)
+knitr::kable(tab.k.means, caption = "\\label{tab:tab_kontyn_k_means} Porównanie przedziałów dyskretyzacji z rzeczywistymi klasami")
+```
+
+```{r k-means match classes}
+matchClasses(tab.k.means)
+```
+
+Wyniki dyskretyzacji metodą opartą na algorytmie grupowania k-średnich dla cechy **petal.length** przedstawiono na Rysunku \ref{fig:histogram_k_means}, gdzie zaznaczono wyznaczone przedziały. Rozkład obserwacji w przestrzeni cechy z uwzględnieniem gatunków uwidoczniono na Rysunku \ref{fig:wykres_rozrzutu_k_means}. Relację między przedziałami dyskretyzacji a rzeczywistymi klasami gatunków przedstawia wykres mozaikowy (Rysunek \ref{fig:wykres_mozaikowy_k_means}) oraz tabela kontyngencji (Tabela \ref{tab:tab_kontyn_k_means}). Ponadto wynik funkcji `matchClasses()` wskazuje na około 90 % (w zależności od wybranych początkowych środków) zgodność pomiędzy przedziałami dyskretyzacji a rzeczywistymi klasami gatunków. 
+
+
+\newpage 
+### Cecha sepal.width
+```{r k-means sepal.width}
+# przedziałowanie zgodnie z metodą opartą na algorytmie grupowania
+k.means.worst <- discretize(sepal.width, breaks=3, method="cluster")
+
+# tworzenie tabeli liczności
+table(k.means.worst)
+```
+
+```{r k-means histogram sepal.width, fig.cap="\\label{fig:histogram_k_means_sepal_width} Dyskretyzacja - metoda: k-means - porównanie z rzeczywistymi klasami", fig.width=4, fig.height=3}
+# tworzenie histogramu dla dyskretyzacji
+breaks.k.means.worst <- attributes(k.means.worst)$"discretized:breaks"
+
+ggplot(as.data.frame(petal.length), aes(x = petal.length)) + geom_histogram(bins=10, color="black", fill="lightblue") + geom_vline(xintercept=breaks.k.means, col="red", lwd=1) + theme_minimal() + labs(title="Metoda: k-means discretization", y="liczba irysów")
+```
+
+```{r k-means wykres rozrzutu sepal.width, fig.cap="\\label{fig:wykres_rozrzutu_k_means_sepal_width} Dyskretyzacja - metoda: k-means - wykres rozrzutu", fig.width=4, fig.height=3}
+ggplot(as.data.frame(sepal.width), aes(x = sepal.width, y = y, color=iris$Species)) + geom_point() + labs(title="Metoda: k-means discretization", colour="Species") + geom_vline(xintercept=breaks.k.means.worst, col="red", lwd=1)
+```
+
+```{r k-means wykres mozaikowy sepal.width, fig.cap="\\label{fig:wykres_mozaikowy_k_means_sepal_width} Dyskretyzacja - metoda: k-means discretization - wykres mozaikowy", fig.width=4, fig.height=3}
+plot(iris$Species~k.means.worst, col=1:3)
+```
+
+```{r k-means tabela kontyngencji sepal.width}
+tab.k.means.worst <- table(k.means.worst, iris$Species)
+knitr::kable(tab.k.means.worst, caption = "\\label{tab:tab_kontyn_k_means_worst} Porównanie przedziałów dyskretyzacji z rzeczywistymi klasami")
+```
+
+```{r k-means match classes sepal.width}
+matchClasses(tab.k.means.worst)
+```
+
+Wyniki dyskretyzacji metodą opartą na algorytmie grupowania k-średnich dla cechy **sepal.width** przedstawiono na Rysunku \ref{fig:histogram_k_means_sepal_width}, gdzie zaznaczono wyznaczone przedziały. Rozkład obserwacji w przestrzeni cechy z uwzględnieniem gatunków uwidoczniono na Rysunku \ref{fig:wykres_rozrzutu_k_means_sepal_width}. Relację między przedziałami dyskretyzacji a rzeczywistymi klasami gatunków przedstawia wykres mozaikowy (Rysunek \ref{fig:wykres_mozaikowy_k_means_sepal_width}) oraz tabela kontyngencji (Tabela \ref{tab:tab_kontyn_k_means_worst}). Ponadto wynik funkcji `matchClasses()` wskazuje na około 50 % (w zależności od wybranych początkowych środków) zgodność pomiędzy przedziałami dyskretyzacji a rzeczywistymi klasami gatunków.
+
+
+
+
+\newpage 
+
+## Dyskretyzacja z przedziałami zadanymi przez użytkownika
+
+### Cecha petal.length
+```{r uzytkownik petal.length}
+# przedziałowanie zgodnie z metodą opartą na przedziałach zadanych przez użytkownika 
+disc.user <- discretize(petal.length, method = "fixed", breaks = c(-Inf, 2, 5, Inf), labels = c("small","medium", "large")) 
+
+# tworzenie tabeli liczności
+table(disc.user)
+```
+
+```{r uzytkownik histogram, fig.cap="\\label{fig:histogram_uzytkownik} Dyskretyzacja z przedziałami zadanymi przez użytkownika - porównanie z rzeczywistymi klasami", fig.width=4, fig.height=3}
+# tworzenie histogramu dla dyskretyzacji
+breaks.disc.user <- attributes(disc.user)$"discretized:breaks"
+
+ggplot(as.data.frame(petal.length), aes(x = petal.length)) + geom_histogram(bins=10, color="black", fill="lightblue") + geom_vline(xintercept=breaks.disc.user, col="red", lwd=1) + theme_minimal() + labs(title="Metoda: user provided breaks)", y="liczba irysów")
+```
+
+```{r uzytkownik wykres rozrzutu, fig.cap="\\label{fig:wykres_rozrzutu_uzytkownik} Dyskretyzacja z przedziałami zadanymi przez użytkownika - wykres rozrzutu", fig.width=4, fig.height=3}
+ggplot(as.data.frame(petal.length), aes(x = petal.length, y = y, color=iris$Species)) + geom_point() + labs(title="Metoda: user provided breaks", colour="Species") + geom_vline(xintercept=breaks.disc.user, col="red", lwd=1)
+
+```
+
+```{r uzytkownik wykres mozaikowy, fig.cap="\\label{fig:wykres_mozaikowy_uzytkownik} Dyskretyzacja z przedziałami zadanymi przez użytkownika - wykres mozaikowy", fig.width=4, fig.height=3}
+plot(iris$Species~disc.user, col=1:3)
+```
+
+```{r uzytkownik tabela kontyngencji}
+tab.disc.user <- table(disc.user, iris$Species)
+knitr::kable(tab.disc.user, caption = "\\label{tab:tab_kontyn_uzytkownik} Porównanie przedziałów dyskretyzacji z rzeczywistymi klasami")
+```
+
+```{r uzytkownik match classes}
+matchClasses(tab.disc.user)
+```
+
+Wyniki dyskretyzacji metodą wyboru przedziałów przez użytkownika dla cechy **petal.length** przedstawiono na Rysunku \ref{fig:histogram_uzytkownik}, gdzie zaznaczono wyznaczone przedziały. Rozkład obserwacji w przestrzeni cechy z uwzględnieniem gatunków uwidoczniono na Rysunku \ref{fig:wykres_rozrzutu_uzytkownik}. Relację między przedziałami dyskretyzacji a rzeczywistymi klasami gatunków przedstawia wykres mozaikowy (Rysunek \ref{fig:wykres_mozaikowy_uzytkownik}) oraz tabela kontyngencji (Tabela \ref{tab:tab_kontyn_uzytkownik}). Ponadto wynik funkcji `matchClasses()` wskazuje na 94.67 % zgodność pomiędzy przedziałami dyskretyzacji a rzeczywistymi klasami gatunków. 
+
+
+
+
+\newpage 
+### Cecha sepal.width
+```{r uzytkownik sepal.width}
+# przedziałowanie zgodnie z metodą opartą na przedziałach zadanych przez użytkownika 
+disc.user.worst <- discretize(sepal.width, method = "fixed", breaks = c(-Inf, 2.75, 3.25, Inf), labels = c("small","medium", "large")) 
+
+# tworzenie tabeli liczności
+table(disc.user.worst)
+```
+
+```{r uzytkownik histogram sepal.width, fig.cap="\\label{fig:histogram_uzytkownik_sepal_width} Dyskretyzacja z przedziałami zadanymi przez użytkownika - porównanie z rzeczywistymi klasami", fig.width=4, fig.height=3}
+# tworzenie histogramu dla dyskretyzacji
+breaks.disc.user.worst <- attributes(disc.user.worst)$"discretized:breaks"
+
+ggplot(as.data.frame(sepal.width), aes(x = sepal.width)) + geom_histogram(bins=10, color="black", fill="lightblue") + geom_vline(xintercept=breaks.disc.user.worst, col="red", lwd=1) + theme_minimal() + labs(title="Metoda: user provided breaks)", y="liczba irysów")
+```
+
+```{r uzytkownik wykres rozrzutu sepal.width, fig.cap="\\label{fig:wykres_rozrzutu_uzytkownik_sepal_width} Dyskretyzacja z przedziałami zadanymi przez użytkownika - wykres rozrzutu", fig.width=4, fig.height=3}
+ggplot(as.data.frame(sepal.width), aes(x = sepal.width, y = y, color=iris$Species)) + geom_point() + labs(title="Metoda: user provided breaks", colour="Species") + geom_vline(xintercept=breaks.disc.user.worst, col="red", lwd=1)
+```
+
+```{r uzytkownik wykres mozaikowy sepal.width, fig.cap="\\label{fig:wykres_mozaikowy_uzytkownik_sepal_width} Dyskretyzacja z przedziałami zadanymi przez użytkownika - wykres mozaikowy", fig.width=4, fig.height=3}
+plot(iris$Species~disc.user.worst, col=1:3)
+```
+
+```{r uzytkownik tabela kontyngencji sepal.width}
+tab.disc.user.worst <- table(disc.user.worst, iris$Species)
+knitr::kable(tab.disc.user.worst, caption = "\\label{tab:tab_kontyn_uzytkownik_worst} Porównanie przedziałów dyskretyzacji z rzeczywistymi klasami")
+```
+
+```{r uzytkownik match classes sepal.width}
+matchClasses(tab.disc.user.worst)
+```
+
+Wyniki dyskretyzacji metodą wyboru przedziałów przez użytkownika dla cechy **sepal.width** przedstawiono na Rysunku \ref{fig:histogram_uzytkownik_sepal_width}, gdzie zaznaczono wyznaczone przedziały. Rozkład obserwacji w przestrzeni cechy z uwzględnieniem gatunków uwidoczniono na Rysunku \ref{fig:wykres_rozrzutu_uzytkownik_sepal_width}. Relację między przedziałami dyskretyzacji a rzeczywistymi klasami gatunków przedstawia wykres mozaikowy (Rysunek \ref{fig:wykres_mozaikowy_uzytkownik_sepal_width}) oraz tabela kontyngencji (Tabela \ref{tab:tab_kontyn_uzytkownik_worst}). Ponadto wynik funkcji `matchClasses()` wskazuje na 56.67 % zgodność pomiędzy przedziałami dyskretyzacji a rzeczywistymi klasami gatunków. 
+
+## Wnioski
+
+* dla **petal.length** (najlepsza cecha) średnia skuteczność metod wyniosła około 95 %
+* dla **sepal.width** (najgorsza cecha) średnia skuteczność to około 55 %
+* skuteczność metod zależy głównie od dyskryminacyjności cechy
+* dla dobrych cech nawet proste metody są efektywne
+* dla złych cech żadna metoda nie gwarantuje dobrej separacji
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+\newpage
+
+# Analiza składowych głównych (Principal Component Analysis (PCA))
+
+W tej sekcji zajmiemy się analizą składowych głównych (PCA) w oparciu o zbiór danych `uaScoresDataFrame.csv`. Analiza składowych głównych jest techniką redukcji wymiarowości, która pozwala na przekształcenie zbioru danych o wielu zmiennych w zbiór o mniejszej liczbie zmiennych, zwanych składowymi głównymi.
+
+## Przygotowanie danych
+```{r dane 2}
+# wczytanie danych
+dane <- read.csv("../data/uaScoresDataFrame.csv")
+
+# podstawowe informacje o zbiorze danych
+cat("Wymiary zbioru danych:", dim(dane), "\n")
+```
+
+Zbiór danych składa się z 4 cech jakościowych i 17 cech ilościowych. Do dalszej analizy należy wybrać wyłącznie cechy ilościowe, czyli wskaźniki jakości życia w zakresie 0-10
+```{r zmienne ilosciowe}
+# wybór tylko zmiennych jakościowych
+zmienne.jakosciowe <- dane[,c(1:4)]
+zmienne.jakosciowe <- zmienne.jakosciowe[,sapply(zmienne.jakosciowe, is.character)]
+
+# wybór tylko zmiennych ilościowych 
+zmienne.ilosciowe <- dane[,c(4:dim(dane)[2])]
+zmienne.ilosciowe <- zmienne.ilosciowe[,sapply(zmienne.ilosciowe, is.numeric)]
+```
+
+
+
+
+```{r zmienne ilosciowe wariancje, results='asis'}
+# obliczenie wariancji dla każdej cechy
+wariancje <- apply(zmienne.ilosciowe, 2, var)
+wariancje_df <- data.frame(Zmienna = names(wariancje), Wariancja = wariancje)
+
+# posortowane wariancje (od największej do najmniejszej)
+wariancje_df <- wariancje_df[order(wariancje_df$Wariancja, decreasing = TRUE),]
+wariancje_table <- xtable(wariancje_df, caption = "\\label{tab:wariancje} Wariancje poszczególnych cech", digits = 4)
+print(wariancje_table, type = "latex", include.rownames = FALSE, floating = TRUE)
+```
+
+
+```{r wykresy pudełkowe zmienne ilosciowe, fig.cap="\\label{fig:wykresy_pudelkowe_pca1} Wykresy pudełkowe dla poszczególnych cech", fig.height=8, fig.width=7}
+# tworzenie wykresów pudełkowych dla poszczególnych cech
+par(mar = c(10, 4, 4, 2) + 0.1)
+boxplot(zmienne.ilosciowe, las=3, col=rainbow(17), main="Wykresy pudełkowe dla poszczególnych cech", ylab="Wartości cech")
+```
+
+Porównanie wariancji (Tabela \ref{tab:wariancje}) i wykresów pudełkowych dla poszczególnych zmiennych (Rysunek \ref{fig:wykresy_pudelkowe_pca1}) wskazuje na konieczność uwzględnienia standaryzacji danych
+
+```{r wykresy pudełkowe zmienne ilosciowe standaryzacja, fig.cap="\\label{fig:wykresy_pudelkowe_pca_stand} Wykresy pudełkowe dla poszczególnych cech po standaryzacji", fig.height=7, fig.width=7}
+# standaryzacja danych
+zmienne.ilosciowe.stand <- scale(zmienne.ilosciowe)
+par(mar = c(10, 4, 4, 2) + 0.1)
+boxplot(zmienne.ilosciowe.stand, las=3, col=rainbow(17), main="Wykresy pudełkowe dla poszczególnych cech po standaryzacji", ylab="Wartości cech")
+```
+
+Wykresy pudełkowe po standaryzacji \ref{fig:wykresy_pudelkowe_pca_stand} pozwoliły ujednolicić wariancję zmiennych.
+
+
+
+## Analiza składowych głównych
+```{r pca}
+# analiza składowych głównych
+pca_dane <- prcomp(zmienne.ilosciowe, center = TRUE, scale. = TRUE, retx = TRUE)
+```
+
+
+```{r wariancje pca, fig.cap="\\label{fig:wariancje_pca} Wariancje poszczególnych składowych", fig.width=5, fig.height=4}
+plot(pca_dane, main="Wariancje poszczególnych składowych", col=rainbow(10))
+```
+
+```{r wykresy pudełkowe pca, fig.cap="\\label{fig:wykresy_pudelkowe_pca2} Wykresy pudełkowe dla poszczególnych składowych głównych", fig.height=5, fig.width=8}
+boxplot(pca_dane$x, col=rainbow(10))
+title("Wykresy pudełkowe dla poszczególnych składowych głównych")
+
+```
+
+Na wykresie (Rysunek \ref{fig:wariancje_pca}) widzimy względny udział każdej składowej głównej w wyjaśnianiu wariancji danych. Możemy zauważyć, że pierwsze kilka składowych dominuje.
+Wykresy pudełkowe dla składowych głównych przedstawione (Rysunek \ref{fig:wykresy_pudelkowe_pca2}) pokazują ich rozkład i zmienność. Warto zauważyć, że rozrzut wartości maleje z kolejnymi składowymi, co jest zgodne z zasadą działania PCA.
+
+
+```{r skumulowana wariancja, fig.cap="\\label{fig:skumulowana_wariancja} Skumulowana wariancja (w %)"}
+wariancja <- 100*(pca_dane$sdev^2)/sum(pca_dane$sdev^2)
+skumulowana.wariancja <- cumsum(wariancja)
+
+barplot(skumulowana.wariancja, main="Skumulowana wariancja (w %)", names.arg=paste("PC",1:17), col="lightblue")
+abline(h=80, col="green", lty=2, lwd=2)
+abline(h=90, col="red", lty=2, lwd=2)
+legend("topleft", legend=c("80%","90%"), lwd=2, lty=2, col=c("green","red"), cex=0.45)
+
+```
+
+Wnioski: Jak widzimy (Rysunek \ref{fig:skumulowana_wariancja}) ograniczając się do siedmiu pierwszych składowych (PC1, PC2, PC3, PC4, PC5, PC6, PC7) zachowujemy ponad 80% całkowitej zmienności danych. Z kolei, dziewięć pierwszych składowych (tj. PC1, PC2, PC3, PC4, PC5, PC6, PC7, PC8, PC9) wyjaśniają prawie 90% całkowitej zmienności.
+
+
+Przyjrzyjmy się wektorom ładunków dla pierwszych trzech składowych głównych:
+```{r loadings, results='asis', tab.width=4}
+# przygotowanie danych z wektorami ładunków dla pierwszych trzech składowych
+loadings_matrix <- pca_dane$rotation[, 1:3]
+
+# tworzymy trzy oddzielne ramki danych, posortowane według wartości bezwzględnej
+
+# PC1
+load_pc1 <- data.frame(PC1.Zmienna = rownames(loadings_matrix), PC1.Ladunek = loadings_matrix[,1])
+load_pc1 <- load_pc1[order(abs(load_pc1$PC1.Ladunek), decreasing = TRUE),]
+
+# PC2
+load_pc2 <- data.frame(PC2.Zmienna = rownames(loadings_matrix), PC2.Ladunek = loadings_matrix[,2])
+load_pc2 <- load_pc2[order(abs(load_pc2$PC2.Ladunek), decreasing = TRUE),]
+
+# PC3
+load_pc3 <- data.frame(PC3.Zmienna = rownames(loadings_matrix), PC3.Ladunek = loadings_matrix[,3])
+load_pc3 <- load_pc3[order(abs(load_pc3$PC3.Ladunek), decreasing = TRUE),]
+
+# łączymy wszystkie ramki danych w jedną tabelę
+loadings_razem <- cbind(load_pc1, load_pc2, load_pc3)
+
+tabela_loadings <- xtable(loadings_razem, caption = "\\label{tab:loadings} Wektory ładunków dla pierwszych trzech składowych głównych (posortowane według wartości bezwzględnej)", digits = c(0, 0, 4, 0, 4, 0, 4))
+print(tabela_loadings, include.rownames=FALSE, scalebox="0.95", width="\\textwidth", size="footnotesize")
+```
+
+\newpage
+Przedstawione wartości wektorów ładunków (Tabela \ref{tab:loadings}) wskazują na wkład poszczególnych zmiennych oryginalnych do składowych głównych.
+
+```{r wklad_pc1, fig.cap="\\label{fig:wklad_pc1} Wkład zmiennych do PC1", fig.height=4, fig.width=5}
+# zwizualizowanie wkładu poszczególnych zmiennych do PC1
+par(mar = c(10, 4, 4, 2) + 0.1)
+barplot(abs(pca_dane$rotation[,1]), main="Wkład zmiennych do PC1", 
+        las=2, col="skyblue", cex.names=0.7)
+abline(h=mean(abs(pca_dane$rotation[,1])), col="red", lty=2, lwd=2)
+```
+
+```{r wklad_pc2, fig.cap="\\label{fig:wklad_pc2} Wkład zmiennych do PC2", fig.height=4, fig.width=5}
+# zwizualizowanie wkładu poszczególnych zmiennych do PC2
+par(mar = c(10, 4, 4, 2) + 0.1)
+barplot(abs(pca_dane$rotation[,2]), main="Wkład zmiennych do PC2", 
+        las=2, col="lightgreen", cex.names=0.7)
+abline(h=mean(abs(pca_dane$rotation[,2])), col="red", lty=2, lwd=2)
+```
+
+```{r wklad_pc3, fig.cap="\\label{fig:wklad_pc3} Wkład zmiennych do PC3", fig.height=4, fig.width=5}
+# zwizualizowanie wkładu poszczególnych zmiennych do PC3
+par(mar = c(10, 4, 4, 2) + 0.1)
+barplot(abs(pca_dane$rotation[,3]), main="Wkład zmiennych do PC3", 
+        las=2, col="lightpink", cex.names=0.7)
+abline(h=mean(abs(pca_dane$rotation[,3])), col="red", lty=2, lwd=2)
+```
+
+\newpage
+
+Na wykresach (Rysunki \ref{fig:wklad_pc1}, \ref{fig:wklad_pc2}, \ref{fig:wklad_pc3}) można zobaczyć bezwzględny wkład zmiennych do poszczególnych składowych głównych. Czerwoną linią zaznaczono średnią wielkość wkładu.
+
+
+
+## Wizualizacja danych wielowymiarowych
+
+Wykorzystamy wyznaczone składowe główne do wizualizacji danych. Najpierw wygenerujemy wykres rozrzutu dla pierwszych dwóch składowych głównych:
+```{r wykres rozrzutu 2d, fig.cap="\\label{fig:rozrzut_2d} Wykres rozrzutu dla pierwszych dwóch składowych głównych", fig.height=5, fig.width=6}
+pc_data <- data.frame(pca_dane$x)
+
+# znajdowanie miast odstających (ekstremalnych wartości)
+extremes <- c(
+  which.max(pc_data$PC1), which.min(pc_data$PC1),
+  which.max(pc_data$PC2), which.min(pc_data$PC2)
+)
+extremes <- unique(extremes)
+
+# przygotowanie etykiet i kolorów
+city_names <- dane$UA_Name  # Używamy kolumny UA_Name dla nazw miast
+continent_factor <- as.factor(dane$UA_Continent)
+continent_colors <- rainbow(length(levels(continent_factor)))
+
+# wykres rozrzutu z kolorami kontynentów
+plot(pc_data$PC1, pc_data$PC2, 
+     main="Wykres rozrzutu dla PC1 i PC2",
+     xlab="PC1", 
+     ylab="PC2",
+     ylim=c(-5, 4),
+     xlim=c(-5,6),
+     pch=16, cex=1.0, 
+     col=continent_colors[continent_factor])
+
+legend("bottomleft", 
+       legend=levels(continent_factor), 
+       col=continent_colors, 
+       pch=16, cex=0.6, 
+       title="Kontynent")
+
+points(pc_data$PC1[extremes], pc_data$PC2[extremes], 
+       col="black", pch=1, cex=2.0, lwd=2)
+
+text(pc_data$PC1[extremes], pc_data$PC2[extremes], 
+     labels=city_names[extremes], pos=3, col="black", cex=0.5, font=2)
+```
+
+
+```{r wykres_rozrzutu_3d, fig.cap="\\label{fig:rozrzut_3d} Wykres rozrzutu dla pierwszych trzech składowych głównych", fig.height=5, fig.width=6}
+library(scatterplot3d)
+
+# znajdowanie miast odstających (ekstremalnych wartości) dla PC1, PC2 i PC3
+extremes_3d <- c(
+  which.max(pc_data$PC1), which.min(pc_data$PC1),
+  which.max(pc_data$PC2), which.min(pc_data$PC2),
+  which.max(pc_data$PC3), which.min(pc_data$PC3)
+)
+extremes_3d <- unique(extremes_3d)
+
+# przygotowanie kolorów według kontynentów
+continent_factor <- as.factor(dane$UA_Continent)
+continent_colors <- rainbow(length(levels(continent_factor)))
+point_colors <- continent_colors[continent_factor]
+
+# wykres 3D z kolorami kontynentów
+scatter3d <- scatterplot3d(pc_data$PC1, pc_data$PC2, pc_data$PC3, 
+                          pch=16, color=point_colors,
+                          main="Wykres rozrzutu 3D dla PC1, PC2 i PC3",
+                          xlab="PC1", ylab="PC2", zlab="PC3",
+                          angle=40)
+
+legend("right", 
+       legend=levels(continent_factor), 
+       col=continent_colors, 
+       pch=16, cex=0.7,
+       title="Kontynent")
+
+xyz <- scatter3d$xyz.convert(pc_data$PC1[extremes_3d], 
+                            pc_data$PC2[extremes_3d], 
+                            pc_data$PC3[extremes_3d])
+
+points(xyz$x, xyz$y, col="black", pch=1, cex=1.8, lwd=2)
+text(xyz$x, xyz$y, labels=dane$UA_Name[extremes_3d], pos=3, col="black", cex=0.6, font=2)
+```
+
+
+Na wykresie dwuwymiarowym (Rysunek \ref{fig:rozrzut_2d}) widoczne jest grupowanie się miast zgodnie z ich przynależnością kontynentalną, co sugeruje istnienie regionalnych wzorców jakości życia. Zauważalne są wyraźne skupiska miast europejskich, azjatyckich i amerykańskich, które formują naturalne grupy w przestrzeni pierwszych dwóch składowych głównych. Ta obserwacja wskazuje, że czynniki geograficzne, kulturowe i ekonomiczne związane z położeniem kontynentalnym mają istotny wpływ na wskaźniki jakości życia.
+
+Wykres trójwymiarowy (Rysunek \ref{fig:rozrzut_3d}) potwierdza te obserwacje, jednocześnie ujawniając dodatkową strukturę danych dzięki wprowadzeniu trzeciej składowej głównej. Warto zauważyć, że niektóre miasta, które wydawały się podobne w projekcji 2D, wykazują większe zróżnicowanie po uwzględnieniu trzeciej składowej.
+
+Na wykresie 2D zidentyfikowano cztery odstające miasta:
+
+* **Bern** – wyróżnia się wyjątkowo wysokimi wartościami dla PC2, co może wskazywać na wysoką jakość usług publicznych oraz wysokie wskaźniki bezpieczeństwa
+
+* **Singapore** - wyróżnia się skrajnie niskimi wartościami PC1, co może odzwierciedlać jego unikalną kombinację wysokiego rozwoju gospodarczego, niskiego poziomu przestępczości, ale jednocześnie wysokich kosztów
+
+* **Delh** - wyróżnia się bardzo niskimi wartościami PC2, co może być związane z niższymi wskaźnikami ekonomicznymi i problemami z zanieczyszczeniem powietrza
+
+* **Caracas** - wyróżnia się ekstremalnie wysokie wartości PC1, co prawdopodobnie odzwierciedla poważne problemy ekonomiczne i wysoki poziom przestępczości
+
+Na wykresie 3D dostrzegalne są dwa dodatkowe miasta odstające:
+
+* **Tokyo** - wyróżnia się niskimi wartościami PC3, co może odzwierciedlać specyficzne cechy takie jak bardzo wysoka gęstość zaludnienia i zaawansowany system transportu publicznego
+
+* **Belize City** – wyróżnia się wysokimi wartościami PC3, co może być związane z jego unikalnym położeniem geograficznymi i specyfiką gospodarki opartej na turystyce
+
+
+Zidentyfikowane miasta odstające reprezentują skrajne wartości składowych głównych, co świadczy o ich nietypowych warunkach jakości życia w porównaniu do większości analizowanych miast. 
+
+
+
+## Korelacja zmiennych
+
+```{r biplot, fig.cap="\\label{fig:biplot} Biplot dla pierwszych dwóch składowych głównych", fig.height=10, fig.width=8}
+par(mar = c(5, 4, 4, 8) + 0.2)
+biplot(pca_dane, choices = c(1, 2), scale = 0, cex = c(0.6, 0.8),
+       col = c("darkgray", "red"), 
+       main = "Biplot dla PC1 i PC2")
+
+# dodajemy kolory dla punktów według kontynentów
+if (exists("dane") && "UA_Continent" %in% colnames(dane)) {
+  continent_factor <- as.factor(dane$UA_Continent)
+  continent_colors <- rainbow(length(levels(continent_factor)))
+  
+  points(pca_dane$x[, 1], pca_dane$x[, 2], 
+         col = continent_colors[continent_factor], pch = 16, cex = 0.8)
+  
+  legend("topright", inset = c(-0.2, 0), xpd = TRUE,
+         legend = levels(continent_factor),
+         col = continent_colors, pch = 16, cex = 0.8,
+         title = "Kontynent")
+}
+```
+\newpage
+
+Na podstawie biplotu (Rysunek \ref{fig:biplot}) zidentyfikowano następujące istotne korelacje:
+
+Silne korelacje dodatnie występują między:
+
+* zmiennymi opisującymi jakość usług publicznych (Healthcare, Environmental Quality, Safety)
+* wskaźnikami ekonomicznymi (Economy, Business Freedom, Internet Access)
+* aspektami kulturalnymi (Leisure & Culture, Outdoors)
+
+Wyraźne korelacje ujemne widoczne są między:
+
+* Cost of Living a jakością usług publicznych
+* Housing a zmiennymi Education i Economy
+* Taxation a aspektami kulturalnymi
+
+
+```{r macierz_korelacji, fig.cap="\\label{fig:macierz_korelacji} Macierz korelacji zmiennych", fig.height=9, fig.width=9, out.width="100%"}
+# obliczamy macierz korelacji
+macierz_korelacji <- cor(zmienne.ilosciowe)
+
+library(corrplot)
+
+par(mar = c(0.5, 0.5, 2, 0.5))
+
+corrplot(macierz_korelacji, 
+         method = "circle", 
+         order = "hclust",
+         tl.col = "black", 
+         tl.cex = 0.5,
+         cl.cex = 0.5,  
+         col = colorRampPalette(c("blue", "white", "red"))(200),
+         addCoef.col = "black", 
+         mar = c(0, 0, 1, 0)) 
+
+title(main = "Macierz korelacji zmiennych", line = 0.5, cex.main = 1.2)
+```
+
+
+
+Macierz korelacji (Rysunek \ref{fig:macierz_korelacji}) potwierdza obserwacje z biplotu, dostarczając dokładnych wartości współczynników korelacji:
+
+* współczynniki korelacji między zmiennymi z grupy usług publicznych, wskaźnikami ekonomicznymi i aspektami kulturalnymi są dodatnie
+* ujemne korelacje między Cost of Living a wskaźnikami usług publicznych mają wartości w zakresie od -0.3 do -0.6
+
+
+Obie metody analizy korelacji prowadzą do spójnych wniosków. Biplot dostarcza intuicyjnej wizualizacji struktury zależności, podczas gdy macierz korelacji precyzuje liczbowe wartości tych zależności.
+
+## Wnioski
+
+* Potrzebne składowe: Pierwsze 4-5 składowych głównych wyjaśnia około 70-75% wariancji danych, co stanowi zadowalającą reprezentację zbioru. Pierwsze dwie składowe wyjaśniają około 40-45% wariancji.
+
+* Interpretacja składowych:
+
+  * PC1: Reprezentuje ogólną jakość życia i rozwój miasta (silnie związana z usługami publicznymi, bezpieczeństwem i rozwojem gospodarczym)
+  * PC2: Kontrastuje aspekty kosztowe (mieszkanie, koszty życia) z jakością usług miejskich
+
+* Grupy miast:
+  * Widoczne jest grupowanie miast według kontynentów
+  * Miasta europejskie wykazują tendencję do wysokich wartości w zakresie usług publicznych
+  * Miasta północnoamerykańskie często charakteryzują się wysokimi kosztami życia
+
+* Wpływ standaryzacji:
+
+  * Standaryzacja była kluczowa dla uzyskania poprawnych wyników
+  * Bez standaryzacji zmienne o większych wartościach bezwzględnych (np. koszty mieszkania) nieproporcjonalnie wpływałyby na wyniki PCA
+
+
+
+
+
+
+
+
+
+
+
+# Skalowanie wielowymiarowe (Multidimensional Scaling (MDS))
+
+W tej sekcji zajmiemy się analizą danych z zestawu danych `Titanic`, który zawiera informacje o pasażerach statku Titanic. Naszym celem będzie zastosowanie metody MDS do redukcji wymiaru i wizualizacji danych.
+
+
+## Przygotowanie danych
+```{r dane 3}
+library(cluster)
+library(MASS)
+library(titanic)
+data("titanic_train")
+```
+
+```{r przygotowanie}
+# konwersja typów zmiennych i usuwanie identyfikatorów
+titanic_clean <- titanic_train
+titanic_clean$Survived <- as.factor(titanic_clean$Survived)
+titanic_clean$Pclass <- as.ordered(titanic_clean$Pclass)
+titanic_clean$Sex <- as.factor(titanic_clean$Sex)
+titanic_clean$Embarked <- as.factor(titanic_clean$Embarked)
+
+# usuwamy kolumny identyfikacyjne
+titanic_clean <- titanic_clean[, !names(titanic_clean) %in% c("PassengerId", "Name", "Ticket", "Cabin")]
+
+# usuwanie braków danych
+titanic_complete <- na.omit(titanic_clean)
+
+# przygotowanie danych do MDS
+titanic_mds_data <- titanic_complete[, !names(titanic_complete) %in% "Survived"]
+cat("Wymiary zbioru danych:", dim(titanic_mds_data), "\n")
+```
+
+
+* Usunięto zmienne identyfikacyjne pasażerów: PassengerId, Name, Ticket i Cabin.
+* Zidentyfikowano braki danych wyłącznie w zmiennej Age (177 obserwacji)
+* Po usunięciu wierszy z brakującymi wartościami uzyskano 714 kompletnych obserwacji.
+
+## Redukcja wymiaru na bazie MDS
+
+```{r redukcja wymiaru, fig.cap="\\label{fig:diagram_sheparda} Diagram Sheparda dla skalowania MDS", fig.height=5, fig.width=6}
+# obliczanie macierzy odmienności
+dissimilarities <- daisy(titanic_mds_data, type = list(ordratio = "Pclass"), stand = TRUE)
+dis_matrix <- as.matrix(dissimilarities)
+
+# wykonanie skalowania metrycznego MDS
+mds_result <- cmdscale(dis_matrix, k = 2)
+
+# obliczanie odległości w przestrzeni MDS
+mds_dist <- dist(mds_result) |> as.matrix()
+
+#obliczenie wartości STRESS
+STRESS <- sum((dis_matrix - mds_dist)^2)
+stress_normalized <- sqrt(STRESS / sum(dis_matrix^2))
+
+# diagram Sheparda
+plot(dis_matrix, mds_dist,
+     main = "Diagram Sheparda",
+     xlab = "Oryginalne odległości",
+     ylab = "Odległości po redukcji MDS",
+     cex = 0.3, col = rgb(0, 0, 0, 0.5))
+abline(a = 0, b = 1, col = "red", lwd = 2)
+
+cat("Znormalizowany STRESS:", round(stress_normalized, 3))
+
+```
+
+
+Diagram Sheparda (Rysunek \ref{fig:diagram_sheparda}) przedstawia zależność między oryginalnymi odległościami a odległościami w przestrzeni 2D po redukcji. Punkty leżące blisko czerwonej linii oznaczają dobrą zgodność między strukturami odległości.
+
+Wartość STRESS wskazuje na jakość dopasowania. Im niższa wartość STRESS, tym lepsze dopasowanie. Znormalizowany Stress wyniósł `r round(stress_normalized, 3)`, co wskazuje na dobrą zgodność struktur odległości.
+
+
+## Wizualizacja wyników MDS
+
+```{r wizualizacja 1, fig.cap="\\label{fig:mds_survived} Rozkład wyników MDS według przeżycia", fig.height=4, fig.width=5}
+ggplot(data.frame(mds_result, Survived = titanic_complete$Survived), 
+       aes(X1, X2, color = Survived)) +
+  geom_point(alpha = 0.7) +
+  scale_color_manual(values = c("red", "blue"), 
+                     labels = c("Nie przeżył", "Przeżył")) +
+  labs(title = "Podział według przeżycia",
+       x = "Wymiar 1", y = "Wymiar 2") +
+  theme_minimal() +
+  theme(legend.position = "bottom")
+
+```
+
+```{r wizualizacja 2, fig.cap="\\label{fig:msex} Rozkład wyników MDS według płci", fig.height=4, fig.width=5}
+ggplot(data.frame(mds_result, Sex = titanic_complete$Sex), 
+       aes(X1, X2, color = Sex)) +
+  geom_point(alpha = 0.7) +
+  scale_color_manual(values = c("pink", "lightblue")) +
+  labs(title = "Podział według płci",
+       x = "Wymiar 1", y = "Wymiar 2") +
+  theme_minimal() +
+  theme(legend.position = "bottom")
+```
+
+```{r wizualizacja 3, fig.cap="\\label{fig:mclass} Rozkład wyników MDS według klasy pasażerskiej", fig.height=4, fig.width=5}
+ggplot(data.frame(mds_result, Pclass = titanic_complete$Pclass), 
+       aes(X1, X2, color = Pclass)) +
+  geom_point(alpha = 0.7) +
+  scale_color_brewer(palette = "Dark2") +
+  labs(title = "Podział według klasy",
+       x = "Wymiar 1", y = "Wymiar 2") +
+  theme_minimal() +
+  theme(legend.position = "bottom")
+```
+
+
+Podział według przeżycia (Rysunek \ref{fig:mds_survived}):
+
+* widoczna częściowa separacja grup
+
+* osoby które przeżyły (niebieskie) skupiają się w obszarze ujemnych wartości Wymiaru 1
+
+* kilka wyraźnych odstających punktów w górnej części wykresu (potencjalni pasażerowie o nietypowych profilach)
+
+
+Podział według płci (Rysunek \ref{fig:msex}):
+
+* silna separacja między grupami, szczególnie wzdłuż Wymiaru 2
+
+* kobiety (różowe) dominują w obszarze dodatnich wartości Wymiaru 2
+
+* mężczyźni (niebieskie) skupieni w dolnej części, co sugeruje istotną rolę płci w strukturze danych
+
+
+Podział według klasy (Rysunek \ref{fig:mclass}):
+
+* wyraźne przejście kolorów wzdłuż Wymiaru 1
+
+* Klasa 1 (ciemnozielona) skupiona po prawej stronie
+
+* Klasa 3 (jasnozielona) dominuje po lewej stronie wykresu
+
+Potwierdza to silny związek klasy pasażerskiej z pozycją w przestrzeni MDS
+
+
+\newpage
+## Wnioski:
+
+* struktura danych w przestrzeni MDS jest silnie powiązana ze zmiennymi: Survived, Sex i Pclass
+
+* najlepszą separację wizualną obserwujemy dla płci (Rysunek \ref{fig:msex})
+
+* przejście w klasach pasażerskich (Rysunek \ref{fig:mclass}) sugeruje, że Wymiar 1 może być związany ze statusem ekonomicznym
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
